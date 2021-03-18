@@ -76,25 +76,29 @@ Try {
 
     }) | ForEach {
 
-        $tmp = $($_.$AnchorMapping)
+        $key = [string]$($_.$AnchorMapping)
 
         #TODO: Find out where the $tmp.guid comes from... to fix...
-        #Write-Output "tmp =  $tmp"
+       # Write-Output "tmp =" $tmp
         #$_ | fl
+        #$tmp.GetType()
 
         # IF user exists in cache
-        If($UserCache.ContainsKey($tmp.guid))
+        If($UserCache.ContainsKey($key))
         {
             Write-Output "[INFO] User $($_.userName) exists in cache, not deleting"
-            $UsersToDelete.Remove($tmp.guid)
+            $UsersToDelete.Remove($key)
         }
         Else
         {
+            Write-Output "[INFO] User $($_.userName) will be added"
 #           $UsersToAdd.Add($_.userName) | Out-Null  #added out-null to mask output
-            $UsersToAdd.Add("$($_.$AnchorMapping)") | Out-Null  #added out-null to mask output
+          #  $UsersToAdd.Add("$($_.$AnchorMapping)") | Out-Null  #added out-null to mask output
+          
+            $UsersToAdd.Add($key) | Out-Null  #added out-null to mask output
 
             #TODO: move location - store to cache after user added to STA
-            $UserCache["$($_.$AnchorMapping)"] = ($_ | Select-Object -Property * -ExcludeProperty $AnchorMapping)
+            $UserCache[$key] = ($_ | Select-Object -Property * -ExcludeProperty $AnchorMapping)
 
         }
 
@@ -121,6 +125,7 @@ Else
     Write-Output "[INFO] Adding the following *$($UsersToAdd.Count)* users:"
     $UsersToAdd
 }
+
 
 
 ############################################################################################################
