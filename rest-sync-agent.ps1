@@ -10,9 +10,9 @@ Param()
 ############################################################################################################
 
 $API_key = "cZN1CbACpSN5jYWpFkMvWNBrhHsq4MIu"
-$API_endpoint = 'https://api.us.safenetid.com/api/v1/tenasnts/OFG56DOGVZ/users'
+$API_endpoint = 'https://api.us.safenetid.com/api/v1/tenants/OFG56DOGVZ/users'
 $Groups = "MFA Secured Users", "Administrators"
-$LocalCacheFile = "C:\tmp\UserHash7.json"
+$LocalCacheFile = "$PSScriptRoot\UserCache.json"
 
 ############################################################################################################
 
@@ -26,7 +26,6 @@ $AttributeMapping = @{
 
 $AnchorMapping = "ObjectGUID"
 
-$DebugPreference = "continue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 ############################################################################################################
@@ -45,29 +44,28 @@ $FilterExpression += $AnchorMapping
 # Phase 0 - Load up cache
 ############################################################################################################
 
-$UserCacheHash = @{}
+$UserCache = @{}
 
-# check for 1st run
-if( Test-Path $LocalCacheFile ) {
+# Import cache into $UserCache variable. Checks for 1st run.
+If( Test-Path $LocalCacheFile ) {
+    Write-Output "Loading from cache $LocalCacheFile"
+    (ConvertFrom-Json (Get-Content -Raw $LocalCacheFile)).PSObject.Properties | ForEach { $UserCache[$_.Name] = $_.Value }
 
-    $UserCacheRaw = Get-Content -Raw $LocalCacheFile
-    (ConvertFrom-Json $UserCacheRaw).psobject.properties | foreach { $UserCacheHash[$_.Name] = $_.Value }
+} Else {
 
-} else {
-    Write-Host "[INFO] First run?... Clean cache?..."
+    Write-Output "[INFO] First run?... Clean cache?..."
+
 }
 
 $UsersToAdd = [System.Collections.ArrayList]::new() # any users found in ad but not in cache
 $UsersToUpdate = [System.Collections.ArrayList]::new() # any users found in ad which have a different attribute than from cache
-$UsersToDelete = [System.Collections.ArrayList]$UserCacheHash.Keys # reverse logic, start with all users, then remove the ones we find in ad as we process
+$UsersToDelete = [System.Collections.ArrayList]$UserCache.Keys # reverse logic, start with all users, then remove the ones we find in ad as we process
 
 ############################################################################################################
 # Phase 1 - Query AD source
 ############################################################################################################
 
-#TODO: Remove UserHashTable and all dependencies. Use $UserToAdd Collection + User "Cache" HashTable instead.
-$UserHashTable = @{}
-
+# TODO: Add better checking / fail-safes in case bad AD connection
 Try {
 
     $(ForEach ($Group in $Groups) {
@@ -75,39 +73,28 @@ Try {
         Get-ADGroupMember -Identity $Group -Recursive `
           | Get-ADUser -Properties * `
           | Select-Object $FilterExpression `
- 
-  
+
     }) | ForEach {
 
-       # $_ | fl
         $tmp = $($_.$AnchorMapping)
 
-        #Write-Host "tmp =  $tmp"
         #TODO: Find out where the $tmp.guid comes from... to fix...
-
-        # IF user exists in multiple groups, takes first
-        #If($UserHashTable.ContainsKey($_.userName))
-        If($UserHashTable.ContainsKey($tmp.guid))
-        {
-            Write-Warning "[Local Cache] - User $($_.userName) already exists"
-
-        }
+        #Write-Output "tmp =  $tmp"
+        #$_ | fl
 
         # IF user exists in cache
-        ElseIf($UserCacheHash.ContainsKey($tmp.guid))
+        If($UserCache.ContainsKey($tmp.guid))
         {
-            Write-Host "[INFO] User $($_.userName) exists in cache, not deleting"
+            Write-Output "[INFO] User $($_.userName) exists in cache, not deleting"
             $UsersToDelete.Remove($tmp.guid)
         }
-        
         Else
         {
-            $UserHashTable["$($_.$AnchorMapping)"] = ($_ | Select-Object -Property * -ExcludeProperty $AnchorMapping)
 #           $UsersToAdd.Add($_.userName) | Out-Null  #added out-null to mask output
             $UsersToAdd.Add("$($_.$AnchorMapping)") | Out-Null  #added out-null to mask output
 
-            #TODO: tmp location - move once user added
-            $UserCacheHash["$($_.$AnchorMapping)"] = ($_ | Select-Object -Property * -ExcludeProperty $AnchorMapping)
+            #TODO: move location - store to cache after user added to STA
+            $UserCache["$($_.$AnchorMapping)"] = ($_ | Select-Object -Property * -ExcludeProperty $AnchorMapping)
 
         }
 
@@ -120,18 +107,18 @@ Catch
 }
 
 # TODO: Refactor
-If($UsersToDelete.Count -eq 0) { Write-Host "[INFO] There are *no* users to delete." }
+If($UsersToDelete.Count -eq 0) { Write-Output "[INFO] There are *no* users to delete." }
 Else
 {
-    Write-Host "[INFO] Deleting the following *$($UsersToDelete.Count)* users:"
+    Write-Output "[INFO] Deleting the following *$($UsersToDelete.Count)* users:"
     $UsersToDelete
 }
 
 
-If($UsersToAdd.Count -eq 0) { Write-Host "[INFO] There are *no* users to add." }
+If($UsersToAdd.Count -eq 0) { Write-Output "[INFO] There are *no* users to add." }
 Else
 {
-    Write-Host "[INFO] Adding the following *$($UsersToAdd.Count)* users:"
+    Write-Output "[INFO] Adding the following *$($UsersToAdd.Count)* users:"
     $UsersToAdd
 }
 
@@ -140,13 +127,61 @@ Else
 # Phase 2 - Make changes to Cloud
 ############################################################################################################
 
-# Add users
-# TODO: Add check when added. 
-# TODO: Move away from UserHashTable to UsersToAdd
-ForEach ($person in $UserHashTable.Values) {
+###########################
+# PART 1: Delete users
+###########################
+ForEach ($key in $UsersToDelete) {
+  #$jsonUserData = ConvertTo-Json $UserCache.$key
+  $userData = $UserCache[$key]
 
-   $body = (ConvertTo-Json $person)
-   Write-Host "[REST] - Sending data`n $body"
+  Write-Output "[REST] Deleting $key `($($userData.userName)`)"
+
+  $hdrs = @{}
+  $hdrs.Add("apikey",$API_key)
+  $hdrs.Add("accept","application/json")
+  $method = "DELETE"
+
+  # Send delete as webrequest, invoke-restmethod drops rc
+  $response = try {
+    (Invoke-WebRequest -Uri $API_endpoint\$($userData.userName) -Method $method -ContentType 'application/json' -Headers $hdrs)
+  }
+  catch [System.Net.WebException] { 
+    Write-Output "An exception was caught: $($_.Exception.Message)"
+    $_.Exception.Response 
+  }
+
+  # Convert status code enum to int by doing this:
+  $statusCodeInt = [int]$response.StatusCode
+  #  $response.StatusCode.Value__
+  Write-Debug "REST DELETE return code => $statuscodeInt"
+
+  # STA did not find user (rc = 404)
+  # Abnormal state in script cache: user found in cache but not in sta, resolve by delete from cache
+  if($statusCodeInt -eq 404)
+  {
+      Write-Output "[LOCAL] Cleaning up $($userData.userName) from cache"
+      $UserCache.Remove($key)
+  }
+
+  # STA delete successful (rc = 204)
+  if($statusCodeInt -eq 204)
+  {
+      Write-Output "[REST] STA Cloud - Successfully deleted $($userData.userName)"
+      Write-Output "[LOCAL] Deleting $($userData.username) from cache"
+      $UserCache.Remove($key)
+  }
+
+}
+
+###########################
+# PART 2: Add users
+# TODO: Add check when added. 
+###########################
+ForEach ($key in $UsersToAdd) {
+
+   $userData = $UserCache[$key]
+   $body = (ConvertTo-Json $userData)
+   Write-Output "[REST] - Sending data`n $body"
 
    $hdrs = @{}
    $hdrs.Add("apikey",$API_key)
@@ -163,52 +198,10 @@ ForEach ($person in $UserHashTable.Values) {
    }
 }
 
-# Delete users
-# TODO: Move order: delete before add (for better capacity conservation)
-ForEach ($key in $UsersToDelete) {
-  #$jsonUserData = ConvertTo-Json $UserCacheHash.$key
-  $userData = $UserCacheHash[$key]
 
-  Write-Host "[REST] Deleting $key `($($userData.userName)`)"
-
-  $hdrs = @{}
-  $hdrs.Add("apikey",$API_key)
-  $hdrs.Add("accept","application/json")
-  $method = "DELETE"
-
-  # Send delete as webrequest, invoke-restmethod drops rc
-  $response = try {
-    (Invoke-WebRequest -Uri $API_endpoint\$($userData.userName) -Method $method -ContentType 'application/json' -Headers $hdrs)
-  }
-  catch [System.Net.WebException] { 
-    Write-Host "An exception was caught: $($_.Exception.Message)"
-    $_.Exception.Response 
-  }
-
-  # Convert status code enum to int by doing this:
-  $statusCodeInt = [int]$response.StatusCode
-  #  $response.StatusCode.Value__
-  Write-Debug "REST DELETE return code => $statuscodeInt"
-
-  if($statusCodeInt -eq 404)
-  {
-      # STA did not find user (rc = 404)
-      # Abnormal state in script cache: user found in cache but not in sta, resolve by delete from cache
-      Write-Host "[LOCAL] Cleaning up $($userData.userName) from cache"
-      $UserCacheHash.Remove($key)
-  }
-
-  if($statusCodeInt -eq 204)
-  {
-      # STA delete successful (rc = 204)
-      Write-Host "[REST] STA Cloud - Successfully deleted $($userData.userName)"
-      Write-Host "[LOCAL] Deleting $($userData.username) from cache"
-      $UserCacheHash.Remove($key)
-  }
-
-}
-
-# TODO: Update users
+###########################
+# PART 3: Update users
+###########################
 ForEach ($key in $UsersToUpdate) {
   # ...
 }
@@ -216,5 +209,5 @@ ForEach ($key in $UsersToUpdate) {
 ############################################################################################################
 
 # Store latest cache
-$UserCacheHash | ConvertTo-Json | out-file $LocalCacheFile
+$UserCache | ConvertTo-Json | out-file $LocalCacheFile
 Write-Output "Storing cache to $LocalCacheFile."  
