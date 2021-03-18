@@ -81,12 +81,20 @@ Try {
         # IF user exists in cache
         If($UserCache.ContainsKey($key))
         {
-            Write-Output "[INFO] User $($_.userName) exists in cache, not deleting"
+          If($UsersToAdd.Contains($key))
+          {
+            Write-Warning "User '$($_.userName)' has already been flagged to be added. This user is probably in multiple filter groups."
+          }
+          Else
+          {
+            Write-Output "[INFO] User '$($_.userName)' exists in cache, not deleting"
             $UsersToDelete.Remove($key)
+          }
+
         }
         Else
         {
-            Write-Output "[INFO] User $($_.userName) will be added"
+            Write-Output "[INFO] User '$($_.userName)' will be added"
             $UsersToAdd.Add($key) | Out-Null  #added out-null to mask output
 
             #TODO: move location - store to cache after user added to STA
@@ -154,15 +162,15 @@ ForEach ($key in $UsersToDelete) {
   # Abnormal state in script cache: user found in cache but not in sta, resolve by delete from cache
   if($statusCodeInt -eq 404)
   {
-      Write-Output "[LOCAL] Cleaning up $($userData.userName) from cache"
+      Write-Output "[LOCAL] Cleaning up '$($userData.userName)' from cache"
       $UserCache.Remove($key)
   }
 
   # STA delete successful (rc = 204)
   if($statusCodeInt -eq 204)
   {
-      Write-Output "[REST] STA Cloud - Successfully deleted $($userData.userName)"
-      Write-Output "[LOCAL] Deleting $($userData.username) from cache"
+      Write-Output "[REST] Successful delete of user '$($userData.userName)' from STA"
+      Write-Output "[LOCAL] Deleting '$($userData.username)' from cache"
       $UserCache.Remove($key)
   }
 
