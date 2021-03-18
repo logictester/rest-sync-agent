@@ -6,13 +6,11 @@
 #
 ###############################################################################
 [CmdletBinding()]
-Param()
-###############################################################################
 
-$API_key = "cZN1CbACpSN5jYWpFkMvWNBrhHsq4MIu"
-$API_endpoint = 'https://api.us.safenetid.com/api/v1/tenants/OFG56DOGVZ/users'
-$Groups = "MFA Secured Users", "Administrators"
-$LocalCacheFile = "$PSScriptRoot\UserCache.json"
+Param([String] $ConfigFile = "agent.config") #add agent.config to param
+
+#TODO: Add check for $ConfigFile
+Get-Content $ConfigFile | foreach-object -begin {$Config=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $Config.Add($k[0], $k[1]) } }
 
 ###############################################################################
 
@@ -34,7 +32,7 @@ $AnchorMapping = "ObjectGUID"
 $FilterExpression = @()
 
 # https://stackoverflow.com/questions/9015138/looping-through-a-hash-or-using-an-array-in-powershell
-$AttributeMapping.keys | % { 
+$AttributeMapping.Keys | % { 
  $FilterExpression += @{Label = "$_"; Expression = $($AttributeMapping.Item($_))}
 }
 
@@ -47,9 +45,9 @@ $FilterExpression += $AnchorMapping
 $UserCache = @{}
 
 # Import cache into $UserCache variable. Checks for 1st run.
-If( Test-Path $LocalCacheFile ) {
-    Write-Output "Loading from cache $LocalCacheFile"
-    (ConvertFrom-Json (Get-Content -Raw $LocalCacheFile)).PSObject.Properties | ForEach { $UserCache[$_.Name] = $_.Value }
+If( Test-Path $($config.LocalCacheFile)) {
+    Write-Output "Loading from cache $($Config.LocalCacheFile)"
+    (ConvertFrom-Json (Get-Content -Raw $Config.LocalCacheFile)).PSObject.Properties | ForEach { $UserCache[$_.Name] = $_.Value }
 
 } Else {
 
@@ -68,7 +66,8 @@ $UsersToDelete = [System.Collections.ArrayList]$UserCache.Keys # reverse logic, 
 # TODO: Add better checking / fail-safes in case bad AD connection
 Try {
 
-    $(ForEach ($Group in $Groups) {
+  if($config.Groups){
+    $(ForEach ($Group in $config.Groups.Split(",")) {
 
         Get-ADGroupMember -Identity $Group -Recursive `
           | Get-ADUser -Properties * `
@@ -103,7 +102,10 @@ Try {
         }
 
     }
-    
+    }
+    else {
+        Write-Warning "No filter groups in config."
+    }
 }
 Catch
 {
@@ -127,7 +129,6 @@ Else
 }
 
 
-
 ###############################################################################
 # PHASE 2 - Make changes to Cloud
 ###############################################################################
@@ -140,13 +141,13 @@ ForEach ($key in $UsersToDelete) {
   Write-Output "[REST] Deleting $key `($($userData.userName)`)"
 
   $hdrs = @{}
-  $hdrs.Add("apikey",$API_key)
+  $hdrs.Add("apikey",$Config.API_key)
   $hdrs.Add("accept","application/json")
   $method = "DELETE"
 
   # Send delete as webrequest, invoke-restmethod drops rc
   $response = try {
-    (Invoke-WebRequest -Uri $API_endpoint\$($userData.userName) -Method $method -ContentType 'application/json' -Headers $hdrs)
+    (Invoke-WebRequest -Uri "$($Config.API_endpoint)\$($userData.userName)" -Method $method -ContentType 'application/json' -Headers $hdrs)
   }
   catch [System.Net.WebException] { 
     Write-Output "An exception was caught: $($_.Exception.Message)"
@@ -187,20 +188,19 @@ ForEach ($key in $UsersToAdd) {
    Write-Output "[REST] - Sending data`n $body"
 
    $hdrs = @{}
-   $hdrs.Add("apikey",$API_key)
+   $hdrs.Add("apikey",$Config.API_key)
    $hdrs.Add("accept","application/json")
 
    $method = "POST"
 
    Try {
-       Invoke-RestMethod -Uri "$API_endpoint" -body $body -Method $method -ContentType 'application/json' -Headers $hdrs
+       Invoke-RestMethod -Uri $Config.API_endpoint -body $body -Method $method -ContentType 'application/json' -Headers $hdrs
    }
    Catch
    {
        Write-Warning "[STA Cloud] - $_[0]"
    }
 }
-
 
 ###############################################################################
 # PART 2.3 - Update users
@@ -212,5 +212,5 @@ ForEach ($key in $UsersToUpdate) {
 ###############################################################################
 # PHASE 3 - Store latest cache
 ###############################################################################
-$UserCache | ConvertTo-Json | out-file $LocalCacheFile
-Write-Output "Storing cache to $LocalCacheFile."  
+$UserCache | ConvertTo-Json | Out-File $config.LocalCacheFile
+Write-Output "Storing cache to $($config.LocalCacheFile)."  
