@@ -1,20 +1,20 @@
-﻿############################################################################################################
+﻿###############################################################################
 #
 # REST-Sync-Agent.ps1 (v0.1-test)
 #
 # Synchronize Active Directory users to SafeNet Trusted Access via REST API
 #
-############################################################################################################
+###############################################################################
 [CmdletBinding()]
 Param()
-############################################################################################################
+###############################################################################
 
 $API_key = "cZN1CbACpSN5jYWpFkMvWNBrhHsq4MIu"
 $API_endpoint = 'https://api.us.safenetid.com/api/v1/tenants/OFG56DOGVZ/users'
 $Groups = "MFA Secured Users", "Administrators"
 $LocalCacheFile = "$PSScriptRoot\UserCache.json"
 
-############################################################################################################
+###############################################################################
 
 $AttributeMapping = @{ 
 #####                  'REST'         =   'AD'
@@ -28,7 +28,7 @@ $AnchorMapping = "ObjectGUID"
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-############################################################################################################
+###############################################################################
 
 # Use calculated properties to remap attributes between source and destination
 $FilterExpression = @()
@@ -40,9 +40,9 @@ $AttributeMapping.keys | % {
 
 $FilterExpression += $AnchorMapping
 
-############################################################################################################
+###############################################################################
 # Phase 0 - Load up cache
-############################################################################################################
+###############################################################################
 
 $UserCache = @{}
 
@@ -61,9 +61,9 @@ $UsersToAdd = [System.Collections.ArrayList]::new() # any users found in ad but 
 $UsersToUpdate = [System.Collections.ArrayList]::new() # any users found in ad which have a different attribute than from cache
 $UsersToDelete = [System.Collections.ArrayList]$UserCache.Keys # reverse logic, start with all users, then remove the ones we find in ad as we process
 
-############################################################################################################
-# Phase 1 - Query AD source
-############################################################################################################
+###############################################################################
+# PHASE 1 - Query AD source
+###############################################################################
 
 # TODO: Add better checking / fail-safes in case bad AD connection
 Try {
@@ -78,11 +78,6 @@ Try {
 
         $key = [string]$($_.$AnchorMapping)
 
-        #TODO: Find out where the $tmp.guid comes from... to fix...
-       # Write-Output "tmp =" $tmp
-        #$_ | fl
-        #$tmp.GetType()
-
         # IF user exists in cache
         If($UserCache.ContainsKey($key))
         {
@@ -92,9 +87,6 @@ Try {
         Else
         {
             Write-Output "[INFO] User $($_.userName) will be added"
-#           $UsersToAdd.Add($_.userName) | Out-Null  #added out-null to mask output
-          #  $UsersToAdd.Add("$($_.$AnchorMapping)") | Out-Null  #added out-null to mask output
-          
             $UsersToAdd.Add($key) | Out-Null  #added out-null to mask output
 
             #TODO: move location - store to cache after user added to STA
@@ -128,13 +120,11 @@ Else
 
 
 
-############################################################################################################
-# Phase 2 - Make changes to Cloud
-############################################################################################################
-
-###########################
-# PART 1: Delete users
-###########################
+###############################################################################
+# PHASE 2 - Make changes to Cloud
+###############################################################################
+# PART 2.1 - Delete users
+###############################################################################
 ForEach ($key in $UsersToDelete) {
   #$jsonUserData = ConvertTo-Json $UserCache.$key
   $userData = $UserCache[$key]
@@ -178,10 +168,10 @@ ForEach ($key in $UsersToDelete) {
 
 }
 
-###########################
-# PART 2: Add users
+###############################################################################
+# PART 2.2 - Add users
 # TODO: Add check when added. 
-###########################
+###############################################################################
 ForEach ($key in $UsersToAdd) {
 
    $userData = $UserCache[$key]
@@ -204,15 +194,15 @@ ForEach ($key in $UsersToAdd) {
 }
 
 
-###########################
-# PART 3: Update users
-###########################
+###############################################################################
+# PART 2.3 - Update users
+###############################################################################
 ForEach ($key in $UsersToUpdate) {
   # ...
 }
 
-############################################################################################################
-
-# Store latest cache
+###############################################################################
+# PHASE 3 - Store latest cache
+###############################################################################
 $UserCache | ConvertTo-Json | out-file $LocalCacheFile
 Write-Output "Storing cache to $LocalCacheFile."  
