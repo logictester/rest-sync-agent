@@ -12,6 +12,13 @@ Param([String] $ConfigFile = "agent.config")
 #TODO: Add check for $ConfigFile
 Get-Content $ConfigFile | ForEach-Object -begin {$Config=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $Config.Add($k[0], $k[1]) } }
 
+Function Write-Log {
+  Param([Parameter(Mandatory=$false)] [String]$message = "",
+        [Parameter(Mandatory=$false)] [String]$TextColor = (get-host).ui.rawui.ForegroundColor )
+      $timestamp = (Get-Date -format "o").Remove(22,5) # Remove 5 characters starting index 22 
+      Write-Host "$timestamp - $message" -ForegroundColor $TextColor
+}
+
 ###############################################################################
 
 $AttributeMapping = @{ 
@@ -46,12 +53,12 @@ $UserCache = @{}
 
 # Import cache into $UserCache variable. Checks for 1st run.
 If( Test-Path $($config.LocalCacheFile)) {
-    Write-Output "Loading from cache $($Config.LocalCacheFile)"
+    Write-Log "Loading from cache $($Config.LocalCacheFile)"
     (ConvertFrom-Json (Get-Content -Raw $Config.LocalCacheFile)).PSObject.Properties | ForEach { $UserCache[$_.Name] = $_.Value }
 
 } Else {
 
-    Write-Output "[INFO] First run?... Clean cache?..."
+    Write-Log "[INFO] First run?... Clean cache?..."
 
 }
 
@@ -86,14 +93,14 @@ Try {
           }
           Else
           {
-            Write-Output "[INFO] User '$($_.userName)' exists in cache, not deleting"
+            Write-Log "[INFO] User '$($_.userName)' exists in cache, not deleting"
             $UsersToDelete.Remove($key)
           }
 
         }
         Else
         {
-            Write-Output "[INFO] User '$($_.userName)' will be added"
+            Write-Log "[INFO] User '$($_.userName)' will be added"
             $UsersToAdd.Add($key) | Out-Null  #added out-null to mask output
 
             #TODO: move location - store to cache after user added to STA
@@ -113,18 +120,18 @@ Catch
 }
 
 # TODO: Refactor
-If($UsersToDelete.Count -eq 0) { Write-Output "[INFO] There are *no* users to delete." }
+If($UsersToDelete.Count -eq 0) { Write-Log "[INFO] There are *no* users to delete." }
 Else
 {
-    Write-Output "[INFO] Deleting the following *$($UsersToDelete.Count)* users:"
+    Write-Log "[INFO] Deleting the following *$($UsersToDelete.Count)* users:"
     $UsersToDelete
 }
 
 
-If($UsersToAdd.Count -eq 0) { Write-Output "[INFO] There are *no* users to add." }
+If($UsersToAdd.Count -eq 0) { Write-Log "[INFO] There are *no* users to add." }
 Else
 {
-    Write-Output "[INFO] Adding the following *$($UsersToAdd.Count)* users:"
+    Write-Log "[INFO] Adding the following *$($UsersToAdd.Count)* users:"
     $UsersToAdd
 }
 
@@ -138,7 +145,7 @@ ForEach ($key in $UsersToDelete) {
   #$jsonUserData = ConvertTo-Json $UserCache.$key
   $userData = $UserCache[$key]
 
-  Write-Output "[REST] Deleting $key `($($userData.userName)`)"
+  Write-Log "[REST] Deleting $key `($($userData.userName)`)"
 
   $hdrs = @{}
   $hdrs.Add("apikey",$Config.API_key)
@@ -146,13 +153,17 @@ ForEach ($key in $UsersToDelete) {
   $method = "DELETE"
 
   # Send delete as webrequest, invoke-restmethod drops rc
-  $response = try {
-    (Invoke-WebRequest -Uri "$($Config.API_endpoint)\$($userData.userName)" -Method $method -ContentType 'application/json' -Headers $hdrs)
-  }
-  catch [System.Net.WebException] { 
-    Write-Output "An exception was caught: $($_.Exception.Message)"
-    $_.Exception.Response 
-  }
+  $timeTaken = Measure-Command { 
+      $response = try {
+        (Invoke-WebRequest -Uri "$($Config.API_endpoint)\$($userData.userName)" -Method $method -ContentType 'application/json' -Headers $hdrs)
+      }
+      catch [System.Net.WebException] { 
+        Write-Log "An exception was caught: $($_.Exception.Message)"
+        $_.Exception.Response 
+      }
+  } 
+
+  Write-Log "Time taken: $($timeTaken.TotalMilliseconds) milliseconds" -TextColor Cyan
 
   # Convert status code enum to int by doing this:
   $statusCodeInt = [int]$response.StatusCode
@@ -163,15 +174,15 @@ ForEach ($key in $UsersToDelete) {
   # Abnormal state in script cache: user found in cache but not in sta, resolve by delete from cache
   if($statusCodeInt -eq 404)
   {
-      Write-Output "[LOCAL] Cleaning up '$($userData.userName)' from cache"
+      Write-Log "[LOCAL] Cleaning up '$($userData.userName)' from cache"
       $UserCache.Remove($key)
   }
 
   # STA delete successful (rc = 204)
   if($statusCodeInt -eq 204)
   {
-      Write-Output "[REST] Successful delete of user '$($userData.userName)' from STA"
-      Write-Output "[LOCAL] Deleting '$($userData.username)' from cache"
+      Write-Log "[REST] Successful delete of user '$($userData.userName)' from STA"
+      Write-Log "[LOCAL] Deleting '$($userData.username)' from cache"
       $UserCache.Remove($key)
   }
 
@@ -185,7 +196,7 @@ ForEach ($key in $UsersToAdd) {
 
    $userData = $UserCache[$key]
    $body = (ConvertTo-Json $userData)
-   Write-Output "[REST] - Sending data`n $body"
+   Write-Log "[REST] - Sending data`n $body"
 
    $hdrs = @{}
    $hdrs.Add("apikey",$Config.API_key)
@@ -193,13 +204,16 @@ ForEach ($key in $UsersToAdd) {
 
    $method = "POST"
 
-   Try {
-       Invoke-RestMethod -Uri $Config.API_endpoint -body $body -Method $method -ContentType 'application/json' -Headers $hdrs
+   $timeTaken = Measure-Command {
+      Try {     
+          Invoke-RestMethod -Uri $Config.API_endpoint -body $body -Method $method -ContentType 'application/json' -Headers $hdrs
+      }
+      Catch
+          {
+          Write-Warning "[STA Cloud] - $_[0]"
+      }
    }
-   Catch
-   {
-       Write-Warning "[STA Cloud] - $_[0]"
-   }
+   Write-Log "Time taken: $($timeTaken.TotalMilliseconds) milliseconds" -TextColor Cyan
 }
 
 ###############################################################################
@@ -213,4 +227,4 @@ ForEach ($key in $UsersToUpdate) {
 # PHASE 3 - Store latest cache
 ###############################################################################
 $UserCache | ConvertTo-Json | Out-File $config.LocalCacheFile
-Write-Output "Storing cache to $($config.LocalCacheFile)."  
+Write-Log "Storing cache to $($config.LocalCacheFile)."  
