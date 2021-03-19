@@ -7,10 +7,10 @@
 ###############################################################################
 [CmdletBinding()]
 
-Param([String] $ConfigFile = "agent.config") #add agent.config to param
+Param([String] $ConfigFile = "agent.config")
 
 #TODO: Add check for $ConfigFile
-Get-Content $ConfigFile | foreach-object -begin {$Config=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $Config.Add($k[0], $k[1]) } }
+Get-Content $ConfigFile | ForEach-Object -begin {$Config=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $Config.Add($k[0], $k[1]) } }
 
 ###############################################################################
 
