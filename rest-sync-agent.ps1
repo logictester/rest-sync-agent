@@ -6,23 +6,12 @@
 #
 ###############################################################################
 [CmdletBinding()]
-Param([String] $ConfigFile = "agent.config")
+Param([String] $ConfigFile = "config\agent.config")
 
-Import-Module $PSScriptRoot\tools -Force
+Import-Module $PSScriptRoot\modules\helpers -Force
 
 #TODO: Add check for $ConfigFile
 Get-Content $ConfigFile | % -begin {$Config=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $Config.Add($k[0], $k[1]) } }
-
-###############################################################################
-  #
-  #       M u l t i - t h r e a d i n g    
-  #
-###############################################################################
-
-$MaxThreadCount = 16
-
-$RunspacePool = [Runspacefactory]::CreateRunspacePool(1, $MaxThreadCount)
-$RunspacePool.Open()
 
 ###############################################################################
   #
@@ -74,6 +63,16 @@ If(Test-Path $($config.LocalCacheFile)) {
 $UsersToAdd = [System.Collections.ArrayList]::new() # any users found in ad but not in cache
 $UsersToUpdate = [System.Collections.ArrayList]::new() # any users found in ad which have a different attribute than from cache
 $UsersToDelete = [System.Collections.ArrayList]$UserCache.Keys # reverse logic, start with all users, then remove the ones we find in ad as we process
+
+
+###############################################################################
+  #
+  #       M u l t i - t h r e a d i n g    
+  #
+###############################################################################
+
+$RunspacePool = [Runspacefactory]::CreateRunspacePool(1, $Config.MaxThreadCount)
+$RunspacePool.Open()
 
 ###############################################################################
 # PHASE 1 - Query AD source
@@ -206,66 +205,53 @@ ForEach ($key in $UsersToDelete)  {
 
 Function Sync-UsersToAdd {
 
-  $ScriptBlock_AddUsers = {  
-  Param($uri, $apiKey, $userData)
+  $ScriptBlockAddUser = [Scriptblock]::Create((Get-Content -Path $PSScriptRoot\modules\scriptblock\add-users.ps1 -Raw))
   
-    Function Add-User {
-      Param ($uri, $method, $header, $body)
-      Try {     
-        Invoke-RestMethod -Uri $uri -body $body -Method $method -ContentType 'application/json' -Headers $header
-      }
-      Catch
-      {
-        ("$_" -replace '"', '') # -> $_.ErrorDetails.Message without quotes
-      }
-    }
-
-    $hdrs = @{}
-    $hdrs.Add("apikey",$apiKey)
-    $hdrs.Add("accept","application/json")
-
-    $method = "POST"
-
-    $body = (ConvertTo-Json $userData)
-    Write-Output "[REST] - Sending data - $body"
-
-    $timeTaken = Measure-Command {
-      $response = (Add-User -Uri $uri -Header $hdrs -Method $method -Body $body)
-    }
-      
-    Write-Output "`n[REST] - Server response - $(ConvertTo-Json $response | % { [System.Text.RegularExpressions.Regex]::Unescape($_) } )" # unescape for exception
-    Write-Output "`nActual time taken: $($timeTaken.TotalMilliseconds) milliseconds" 
-
-  }
-
   # Keep track of threads
   [System.Collections.ArrayList]$Jobs = @()
 
   #[System.Collections.ArrayList]$qwResults = @()
 
+  $api = @{
+        uri = $Config.API_endpoint
+        hdr = @{
+                apikey = $Config.API_key
+                accept = "application/json"
+        }
+        method = "POST"
+        path = $PSScriptRoot
+  }
+
   $UsersToAdd | % {
 
-    $userData = $UserCache[$_]
-    $PowerShell = [powershell]::Create().AddScript($ScriptBlock_AddUsers)
-      
-    [void]$PowerShell.AddParameter("userData", $userData)
-    [void]$PowerShell.AddParameter("uri", $Config.API_endpoint)
-    [void]$PowerShell.AddParameter("apiKey", $Config.API_key)
+        $PowerShell = [powershell]::Create().AddScript($ScriptBlockAddUser)
 
-    $PowerShell.RunspacePool = $RunspacePool
     
-    $Jobs += New-Object -TypeName PSObject -Property @{
-      Pipe = $PowerShell.BeginInvoke()
-      PowerShell = $PowerShell
-    }
+        $ParamList = @{
+            user = $UserCache[$_]
+            api = $api
+        }
+
+        [void]$PowerShell.AddParameters($ParamList)
+
+        $PowerShell.RunspacePool = $RunspacePool
+    
+        $Jobs += New-Object -TypeName PSObject -Property @{
+            Pipe = $PowerShell.BeginInvoke()
+            PowerShell = $PowerShell
+        }
   }
   
+  #$stopWatch = [system.diagnostics.stopwatch]::StartNew()
+  #$res = Invoke-WebRequest $SASAPIURI -Method Post -ContentType "text/xml" -Body $queryBody
+  #$runElapse = $stopWatch.elapsed.TotalMilliseconds
+
   Measure-Command {
     While($Jobs) {
       ForEach ($Runspace in $Jobs.ToArray()) {
         If ($Runspace.Pipe.IsCompleted) {
             #[void]$qwResults.Add($Runspace.PowerShell.EndInvoke($Runspace.Pipe))
-            Write-Host $Runspace.PowerShell.EndInvoke($Runspace.Pipe)
+            Write-Host $Runspace.PowerShell.EndInvoke($Runspace.Pipe)  # get results
             $Runspace.PowerShell.Dispose()
             $Jobs.Remove($Runspace)
         }

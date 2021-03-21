@@ -1,3 +1,2 @@
-cache.json
-agent.config
-*.zip
+
+db/cache.json
