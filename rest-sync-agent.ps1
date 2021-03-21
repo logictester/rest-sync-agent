@@ -6,19 +6,28 @@
 #
 ###############################################################################
 [CmdletBinding()]
-
 Param([String] $ConfigFile = "agent.config")
 
+Import-Module $PSScriptRoot\tools -Force
+
 #TODO: Add check for $ConfigFile
-Get-Content $ConfigFile | ForEach-Object -begin {$Config=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $Config.Add($k[0], $k[1]) } }
+Get-Content $ConfigFile | % -begin {$Config=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $Config.Add($k[0], $k[1]) } }
 
-Function Write-Log {
-  Param([Parameter(Mandatory=$false)] [String]$message = "",
-        [Parameter(Mandatory=$false)] [String]$TextColor = (get-host).ui.rawui.ForegroundColor )
-      $timestamp = (Get-Date -format "o").Remove(22,5) # Remove 5 characters starting index 22 
-      Write-Host "$timestamp - $message" -ForegroundColor $TextColor
-}
+###############################################################################
+  #
+  #       M u l t i - t h r e a d i n g    
+  #
+###############################################################################
 
+$MaxThreadCount = 16
+
+$RunspacePool = [Runspacefactory]::CreateRunspacePool(1, $MaxThreadCount)
+$RunspacePool.Open()
+
+###############################################################################
+  #
+  #       A d v a n c e d   S e t t i n g s
+  #
 ###############################################################################
 
 $AttributeMapping = @{ 
@@ -52,7 +61,7 @@ $FilterExpression += $AnchorMapping
 $UserCache = @{}
 
 # Import cache into $UserCache variable. Checks for 1st run.
-If( Test-Path $($config.LocalCacheFile)) {
+If(Test-Path $($config.LocalCacheFile)) {
     Write-Log "Loading from cache $($Config.LocalCacheFile)"
     (ConvertFrom-Json (Get-Content -Raw $Config.LocalCacheFile)).PSObject.Properties | ForEach { $UserCache[$_.Name] = $_.Value }
 
@@ -73,23 +82,24 @@ $UsersToDelete = [System.Collections.ArrayList]$UserCache.Keys # reverse logic, 
 # TODO: Add better checking / fail-safes in case bad AD connection
 Try {
 
-  if($config.Groups){
-    $(ForEach ($Group in $config.Groups.Split(",")) {
+  if($Config.Groups){
+    $(ForEach ($Group in $Config.Groups.Split(",")) {
 
         Get-ADGroupMember -Identity $Group -Recursive `
           | Get-ADUser -Properties * `
           | Select-Object $FilterExpression `
 
-    }) | ForEach {
+    }) | % {
 
         $key = [string]$($_.$AnchorMapping)
 
         # IF user exists in cache
         If($UserCache.ContainsKey($key))
         {
+          # IF user already being added
           If($UsersToAdd.Contains($key))
           {
-            Write-Warning "User '$($_.userName)' has already been flagged to be added. This user is probably in multiple filter groups."
+            Write-Warning "User '$($_.userName)' exists in more than one target group?"
           }
           Else
           {
@@ -141,7 +151,8 @@ Else
 ###############################################################################
 # PART 2.1 - Delete users
 ###############################################################################
-ForEach ($key in $UsersToDelete) {
+
+ForEach ($key in $UsersToDelete)  {
   #$jsonUserData = ConvertTo-Json $UserCache.$key
   $userData = $UserCache[$key]
 
@@ -174,7 +185,7 @@ ForEach ($key in $UsersToDelete) {
   # Abnormal state in script cache: user found in cache but not in sta, resolve by delete from cache
   if($statusCodeInt -eq 404)
   {
-      Write-Log "[LOCAL] Cleaning up '$($userData.userName)' from cache"
+      Write-Log "[LOCL] Cleaning up '$($userData.userName)' from cache"
       $UserCache.Remove($key)
   }
 
@@ -182,7 +193,7 @@ ForEach ($key in $UsersToDelete) {
   if($statusCodeInt -eq 204)
   {
       Write-Log "[REST] Successful delete of user '$($userData.userName)' from STA"
-      Write-Log "[LOCAL] Deleting '$($userData.username)' from cache"
+      Write-Log "[LOCL] Deleting '$($userData.username)' from cache"
       $UserCache.Remove($key)
   }
 
@@ -192,28 +203,80 @@ ForEach ($key in $UsersToDelete) {
 # PART 2.2 - Add users
 # TODO: Add check when added. 
 ###############################################################################
-ForEach ($key in $UsersToAdd) {
 
-   $userData = $UserCache[$key]
-   $body = (ConvertTo-Json $userData)
-   Write-Log "[REST] - Sending data`n $body"
+Function Sync-UsersToAdd {
 
-   $hdrs = @{}
-   $hdrs.Add("apikey",$Config.API_key)
-   $hdrs.Add("accept","application/json")
-
-   $method = "POST"
-
-   $timeTaken = Measure-Command {
+  $ScriptBlock_AddUsers = {  
+  Param($uri, $apiKey, $userData)
+  
+    Function Add-User {
+      Param ($uri, $method, $header, $body)
       Try {     
-          Invoke-RestMethod -Uri $Config.API_endpoint -body $body -Method $method -ContentType 'application/json' -Headers $hdrs
+        Invoke-RestMethod -Uri $uri -body $body -Method $method -ContentType 'application/json' -Headers $header
       }
       Catch
-          {
-          Write-Warning "[STA Cloud] - $_[0]"
+      {
+        ("$_" -replace '"', '') # -> $_.ErrorDetails.Message without quotes
       }
-   }
-   Write-Log "Time taken: $($timeTaken.TotalMilliseconds) milliseconds" -TextColor Cyan
+    }
+
+    $hdrs = @{}
+    $hdrs.Add("apikey",$apiKey)
+    $hdrs.Add("accept","application/json")
+
+    $method = "POST"
+
+    $body = (ConvertTo-Json $userData)
+    Write-Output "[REST] - Sending data - $body"
+
+    $timeTaken = Measure-Command {
+      $response = (Add-User -Uri $uri -Header $hdrs -Method $method -Body $body)
+    }
+      
+    Write-Output "`n[REST] - Server response - $(ConvertTo-Json $response | % { [System.Text.RegularExpressions.Regex]::Unescape($_) } )" # unescape for exception
+    Write-Output "`nActual time taken: $($timeTaken.TotalMilliseconds) milliseconds" 
+
+  }
+
+  # Keep track of threads
+  [System.Collections.ArrayList]$Jobs = @()
+
+  #[System.Collections.ArrayList]$qwResults = @()
+
+  $UsersToAdd | % {
+
+    $userData = $UserCache[$_]
+    $PowerShell = [powershell]::Create().AddScript($ScriptBlock_AddUsers)
+      
+    [void]$PowerShell.AddParameter("userData", $userData)
+    [void]$PowerShell.AddParameter("uri", $Config.API_endpoint)
+    [void]$PowerShell.AddParameter("apiKey", $Config.API_key)
+
+    $PowerShell.RunspacePool = $RunspacePool
+    
+    $Jobs += New-Object -TypeName PSObject -Property @{
+      Pipe = $PowerShell.BeginInvoke()
+      PowerShell = $PowerShell
+    }
+  }
+  
+  Measure-Command {
+    While($Jobs) {
+      ForEach ($Runspace in $Jobs.ToArray()) {
+        If ($Runspace.Pipe.IsCompleted) {
+            #[void]$qwResults.Add($Runspace.PowerShell.EndInvoke($Runspace.Pipe))
+            Write-Host $Runspace.PowerShell.EndInvoke($Runspace.Pipe)
+            $Runspace.PowerShell.Dispose()
+            $Jobs.Remove($Runspace)
+        }
+      }
+    }
+  }
+  #Write-Host "The results for qWresults:" $qwResults
+}
+
+if($UsersToAdd) {
+  Sync-UsersToAdd
 }
 
 ###############################################################################
@@ -226,5 +289,5 @@ ForEach ($key in $UsersToUpdate) {
 ###############################################################################
 # PHASE 3 - Store latest cache
 ###############################################################################
-$UserCache | ConvertTo-Json | Out-File $config.LocalCacheFile
-Write-Log "Storing cache to $($config.LocalCacheFile)."  
+$UserCache | ConvertTo-Json | Out-File $Config.LocalCacheFile
+Write-Log "Storing cache to $($Config.LocalCacheFile)."  
