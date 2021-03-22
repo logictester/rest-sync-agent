@@ -8,8 +8,15 @@
 [CmdletBinding()]
 Param([String] $ConfigFile = "config\agent.config")
 
+
+##############################################################################
+
+
 # Import Write-Log, Write-ColorOutput
 Import-Module $PSScriptRoot\modules\general\logging -Force
+
+# Import Sync-UsersToAdd
+Import-Module $PSScriptRoot\modules\sync\usersToAdd -Force
 
 Get-Content $ConfigFile | % -begin {$Config=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $Config.Add($k[0], $k[1]) } }
 
@@ -209,66 +216,10 @@ ForEach ($key in $UsersToDelete)  {
 ###############################################################################
 # PART 2.2 - Add users
 # TODO: Add check when added. 
-###############################################################################
-
-Function Sync-UsersToAdd {
-
-  $ScriptBlockAddUser = [Scriptblock]::Create((Get-Content -Path $PATHSCRIPT_ADDUSERS -Raw))
-  
-  # Keep track of threads
-  [System.Collections.ArrayList]$Jobs = @()
-
-  #[System.Collections.ArrayList]$qwResults = @()
-
-  $api = @{
-        uri = $Config.API_endpoint
-        hdr = @{
-                apikey = $Config.API_key
-                accept = "application/json"
-        }
-        method = "POST"
-  }
-
-  $UsersToAdd | % {
-
-        $PowerShell = [powershell]::Create().AddScript($ScriptBlockAddUser)
-
-        $ParamList = @{
-            user = $UserCache[$_]
-            api  = $api
-            path = $PSScriptRoot
-        }
-
-        [void]$PowerShell.AddParameters($ParamList)
-
-        $PowerShell.RunspacePool = $RunspacePool
-    
-        $Jobs += New-Object -TypeName PSObject -Property @{
-            Pipe = $PowerShell.BeginInvoke()
-            PowerShell = $PowerShell
-        }
-  }
-  
-  $stopWatch = [system.diagnostics.stopwatch]::StartNew()
-  
-  While($Jobs) {
-    ForEach ($Runspace in $Jobs.ToArray()) {
-      If ($Runspace.Pipe.IsCompleted) {
-            #[void]$qwResults.Add($Runspace.PowerShell.EndInvoke($Runspace.Pipe))
-          Write-Host $Runspace.PowerShell.EndInvoke($Runspace.Pipe)  # get results
-          $Runspace.PowerShell.Dispose()
-          $Jobs.Remove($Runspace)
-      }
-    }
-  }
-  
-  $timeElapsed = $stopWatch.Elapsed.TotalSeconds
-  Write-Log "Total time elapsed (in seconds): $timeElapsed" -TextColor Cyan
-  #Write-Host "The results for qWresults:" $qwResults
-}
+#
 
 if($UsersToAdd) {
-  Sync-UsersToAdd
+  Sync-UsersToAdd -UsersToAdd $UsersToAdd -UserCache $UserCache -Config $Config
 }
 
 ###############################################################################
