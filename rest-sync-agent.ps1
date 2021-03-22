@@ -24,9 +24,9 @@ Get-Content $ConfigFile | % -begin {$Config=@{}} -process { $k = [regex]::split(
 $Config.LocalCacheFile = ($Config.LocalCacheFile -replace "<default>", "$PSScriptRoot\db")
 
 # Import scriptblocks used during multi-threading
-$PATHSCRIPT_ADDUSERS = "$PSScriptRoot\modules\scriptblock\add-users.ps1"
-$PATHSCRIPT_DELUSERS = "$PSScriptRoot\modules\scriptblock\del-users.ps1"
-$PATHSCRIPT_UPDATEUSERS = "$PSScriptRoot\modules\scriptblock\update-users.ps1"
+#$PATHSCRIPT_ADDUSERS = "$PSScriptRoot\modules\scriptblock\add-users.ps1"
+#$PATHSCRIPT_DELUSERS = "$PSScriptRoot\modules\scriptblock\del-users.ps1"
+#$PATHSCRIPT_UPDATEUSERS = "$PSScriptRoot\modules\scriptblock\update-users.ps1"
 
 ###############################################################################
   #
@@ -71,7 +71,7 @@ If(Test-Path $($Config.LocalCacheFile)) {
 
 } Else {
 
-    Write-Log "[INFO] First run?... Clean cache?..."
+    Write-Log "[ INFO ] - First run?... Clean cache?..."
 
 }
 
@@ -117,14 +117,14 @@ Try {
           }
           Else
           {
-            Write-Log "[INFO] User '$($_.userName)' exists in cache, not deleting"
+            Write-Log "[ INFO ] - User '$($_.userName)' exists in cache, not deleting"
             $UsersToDelete.Remove($key)
           }
 
         }
         Else
         {
-            Write-Log "[INFO] User '$($_.userName)' will be added"
+            Write-Log "[ INFO ] - User '$($_.userName)' will be added"
             $UsersToAdd.Add($key) | Out-Null  #added out-null to mask output
 
             #TODO: move location - store to cache after user added to STA
@@ -144,18 +144,18 @@ Catch
 }
 
 # TODO: Refactor
-If($UsersToDelete.Count -eq 0) { Write-Log "[INFO] There are *no* users to delete." }
+If($UsersToDelete.Count -eq 0) { Write-Log "[ INFO ] - There are *no* users to delete." }
 Else
 {
-    Write-Log "[INFO] Deleting the following *$($UsersToDelete.Count)* users:"
+    Write-Log "[ INFO ] - Deleting the following *$($UsersToDelete.Count)* users:"
     $UsersToDelete
 }
 
 
-If($UsersToAdd.Count -eq 0) { Write-Log "[INFO] There are *no* users to add." }
+If($UsersToAdd.Count -eq 0) { Write-Log "[ INFO ] - There are *no* users to add." }
 Else
 {
-    Write-Log "[INFO] Adding the following *$($UsersToAdd.Count)* users:"
+    Write-Log "[ INFO ] - Adding the following *$($UsersToAdd.Count)* users:"
     $UsersToAdd
 }
 
@@ -170,7 +170,7 @@ ForEach ($key in $UsersToDelete)  {
   #$jsonUserData = ConvertTo-Json $UserCache.$key
   $userData = $UserCache[$key]
 
-  Write-Log "[REST] Deleting $key `($($userData.userName)`)"
+  Write-Log "[ REST ] - Deleting $key `($($userData.userName)`)"
 
   $hdrs = @{}
   $hdrs.Add("apikey",$Config.API_key)
@@ -188,26 +188,26 @@ ForEach ($key in $UsersToDelete)  {
       }
   } 
 
-  Write-Log "Time taken: $($timeTaken.TotalMilliseconds) milliseconds" -TextColor Cyan
+  Write-Log "Time taken (in milliseconds): $($timeTaken.TotalMilliseconds)" -TextColor Cyan
 
   # Convert status code enum to int by doing this:
   $statusCodeInt = [int]$response.StatusCode
   #  $response.StatusCode.Value__
-  Write-Debug "REST DELETE return code => $statuscodeInt"
+  Write-Debug "[ REST ] - DELETE return code => $statuscodeInt"
 
   # STA did not find user (rc = 404)
   # Abnormal state in script cache: user found in cache but not in sta, resolve by delete from cache
   if($statusCodeInt -eq 404)
   {
-      Write-Log "[LOCL] Cleaning up '$($userData.userName)' from cache"
+      Write-Log "[ LOCL ] - Cleaning up '$($userData.userName)' from cache"
       $UserCache.Remove($key)
   }
 
   # STA delete successful (rc = 204)
   if($statusCodeInt -eq 204)
   {
-      Write-Log "[REST] Successful delete of user '$($userData.userName)' from STA"
-      Write-Log "[LOCL] Deleting '$($userData.username)' from cache"
+      Write-Log "[ REST ] - Successful delete of user '$($userData.userName)' from STA"
+      Write-Log "[ LOCL ] - Deleting '$($userData.username)' from cache"
       $UserCache.Remove($key)
   }
 

@@ -1,4 +1,4 @@
-# ScriptBlockAddUser
+# ScriptBlock Generalized
 Param($api, $user, $path)
 
 Import-Module "$path\..\general\basic-helpers" -Force

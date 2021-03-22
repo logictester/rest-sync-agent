@@ -3,6 +3,7 @@ $PATHSCRIPT_ADDUSERS = "$PSScriptRoot\scriptblock\usersToAddBlock.ps1"
 $PATHSCRIPT_DELUSERS = "$PSScriptRoot\scriptblock\del-users.ps1"
 $PATHSCRIPT_UPDATEUSERS = "$PSScriptRoot\scriptblock\update-users.ps1"
 
+# to generalize, move config to api_key + endpoint. also ask for method.
 Function Sync-UsersToAdd($UsersToAdd, $UserCache, $Config) {
 
   $ScriptBlockAddUser = [Scriptblock]::Create((Get-Content -Path $PATHSCRIPT_ADDUSERS -Raw))
@@ -55,7 +56,8 @@ Function Sync-UsersToAdd($UsersToAdd, $UserCache, $Config) {
     }
   }
   
-  $timeElapsed = $stopWatch.Elapsed.TotalSeconds
-  Write-Log "Total time elapsed (in seconds): $timeElapsed" -TextColor Cyan
+  $stopWatch.Stop()
+  $timeElapsed = [System.Math]::Round($stopWatch.Elapsed.TotalSeconds, 3)
+  Write-Log "[ SYNC ] - Total time elapsed (in seconds): $timeElapsed" -TextColor Cyan
   #Write-Host "The results for qWresults:" $qwResults
 }
