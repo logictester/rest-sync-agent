@@ -65,12 +65,19 @@ $FilterExpression += $AnchorMapping
 # Phase 0 - Load up cache
 ###############################################################################
 
-$UserCache = @{}
+$UserCache = [ordered]@{}
 
 # Import cache into $UserCache variable. Checks for 1st run.
 If(Test-Path $($Config.LocalCacheFile)) {
     Write-Log "Loading from cache $($Config.LocalCacheFile)"
     (ConvertFrom-Json (Get-Content -Raw $Config.LocalCacheFile)).PSObject.Properties | ForEach { $UserCache[$_.Name] = $_.Value }
+
+
+    #TODO: Relocate to a function / used in db save too.
+   # $UserCache.GetEnumerator() | Sort-Object -Property @{e={$_.Value.userName}} `
+   # | Select Key, Value `
+   # | % -begin { $UserCache = [ordered]@{}} -process { $UserCache[$_.Key] = $_.Value }
+
 
 } Else {
 
@@ -99,11 +106,13 @@ $RunspacePool.Open()
 # TODO: Add better checking / fail-safes in case bad AD connection
 Try {
 
+  $Properties = [String[]](($AttributeMapping.Values + $AnchorMapping) | % ToString)
+
   if($Config.Groups){
     $(ForEach ($Group in $Config.Groups.Split(",")) {
 
         Get-ADGroupMember -Identity $Group -Recursive `
-          | Get-ADUser -Properties * `
+          | Get-ADUser -Properties $Properties `
           | Select-Object $FilterExpression `
 
     }) | % {
@@ -111,7 +120,7 @@ Try {
         $key = [string]$($_.$AnchorMapping)
 
         # IF user exists in cache
-        If($UserCache.ContainsKey($key))
+        If($UserCache.Contains($key))
         {
           # IF user already being added
           If($UsersToAdd.Contains($key))
@@ -240,5 +249,10 @@ ForEach ($key in $UsersToUpdate) {
 ###############################################################################
 # PHASE 3 - Store latest cache
 ###############################################################################
+
+#$UserCache.GetEnumerator() | Sort-Object -Property @{e={$_.Value.userName}} `
+#  | Select Key, Value `
+ # | % -begin { $UserCache = [ordered]@{}} -process { $UserCache[$_.Key] = $_.Value }
+
 $UserCache | ConvertTo-Json | Out-File $Config.LocalCacheFile
 Write-Log "Storing cache to $($Config.LocalCacheFile)."  
