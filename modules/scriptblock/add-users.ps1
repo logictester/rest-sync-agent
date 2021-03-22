@@ -1,7 +1,7 @@
 # ScriptBlockAddUser
 Param($api, $user, $path)
 
-Import-Module "$path\modules\basic-helpers" -Force
+Import-Module "$path\modules\general\basic-helpers" -Force
 
 $body = (ConvertTo-Json $user)
 $message = Write-Timestamp "[REST] - Sending data - $body`n"

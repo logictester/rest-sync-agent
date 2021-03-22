@@ -9,7 +9,7 @@
 Param([String] $ConfigFile = "config\agent.config")
 
 # Import Write-Log, Write-ColorOutput
-Import-Module $PSScriptRoot\modules\logging -Force
+Import-Module $PSScriptRoot\modules\general\logging -Force
 
 Get-Content $ConfigFile | % -begin {$Config=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $Config.Add($k[0], $k[1]) } }
 
