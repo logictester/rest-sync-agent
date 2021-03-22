@@ -11,7 +11,7 @@ $timeTaken = Measure-Command {
 }
       
 $jsonResponse = ConvertTo-Json $response | % { [System.Text.RegularExpressions.Regex]::Unescape($_) }
-$message += Write-Timestamp "[ REST ] - Result - $jsonResponse`n" # unescape for exception
+$message += Write-Timestamp "[ REST ] - Result $($api.method) - $jsonResponse`n" # unescape for exception
 $message += Write-Timestamp "Actual time taken (in milliseconds): $($timeTaken.TotalMilliseconds)`n" 
 $message += "" + "-"*120
 $message

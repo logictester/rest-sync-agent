@@ -18,6 +18,9 @@ Import-Module $PSScriptRoot\modules\general\logging -Force
 # Import Sync-UsersToAdd
 Import-Module $PSScriptRoot\modules\sync\usersToAdd -Force
 
+# Import Sync-Users
+Import-Module $PSScriptRoot\modules\sync\users -Force
+
 Get-Content $ConfigFile | % -begin {$Config=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $Config.Add($k[0], $k[1]) } }
 
 # Resolve default cache path
@@ -166,7 +169,11 @@ Else
 # PART 2.1 - Delete users
 ###############################################################################
 
-ForEach ($key in $UsersToDelete)  {
+if($UsersToDelete) {
+  Sync-Users -Method "DELETE" -Users $UsersToDelete -UserCache $UserCache -Config $Config
+}
+
+<#ForEach ($key in $UsersToDelete)  {
   #$jsonUserData = ConvertTo-Json $UserCache.$key
   $userData = $UserCache[$key]
 
@@ -212,6 +219,7 @@ ForEach ($key in $UsersToDelete)  {
   }
 
 }
+#>
 
 ###############################################################################
 # PART 2.2 - Add users

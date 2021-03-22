@@ -1,18 +1,18 @@
 # Import scriptblocks used during multi-threading
-$PATHSCRIPT_ADDUSERS = "$PSScriptRoot\scriptblock\usersToAddBlock.ps1"
-$PATHSCRIPT_DELUSERS = "$PSScriptRoot\scriptblock\del-users.ps1"
-$PATHSCRIPT_UPDATEUSERS = "$PSScriptRoot\scriptblock\update-users.ps1"
+
+$PATH_SCRIPTBLOCK = "$PSScriptRoot\scriptblock.ps1"
 
 # to generalize, move config to api_key + endpoint. also ask for method.
-Function Sync-UsersToAdd($UsersToAdd, $UserCache, $Config) {
+Function Sync-Users($Method, $Users, $UserCache, $Config) {
 
-  $ScriptBlockAddUser = [Scriptblock]::Create((Get-Content -Path $PATHSCRIPT_ADDUSERS -Raw))
+  $ScriptBlock = [Scriptblock]::Create((Get-Content -Path $PATH_SCRIPTBLOCK -Raw))
+
+  $RunspacePool = [Runspacefactory]::CreateRunspacePool(1, $Config.MaxThreadCount)
+  $RunspacePool.Open()
   
   # Keep track of threads
   [System.Collections.ArrayList]$Jobs = @()
 
-  $RunspacePool = [Runspacefactory]::CreateRunspacePool(1, $Config.MaxThreadCount)
-  $RunspacePool.Open()
   #[System.Collections.ArrayList]$qwResults = @()
 
   $api = @{
@@ -21,13 +21,12 @@ Function Sync-UsersToAdd($UsersToAdd, $UserCache, $Config) {
                 apikey = $Config.API_key
                 accept = "application/json"
         }
-        method = "POST"
+        method = $Method
   }
 
- # Write-Host "BLOBLB" $UsersToAdd
-  $UsersToAdd | % {
+  $Users | % {
 
-        $PowerShell = [powershell]::Create().AddScript($ScriptBlockAddUser)
+        $PowerShell = [powershell]::Create().AddScript($ScriptBlock)
 
         $ParamList = @{
             user = $UserCache[$_]
@@ -62,7 +61,4 @@ Function Sync-UsersToAdd($UsersToAdd, $UserCache, $Config) {
   $timeElapsed = [System.Math]::Round($stopWatch.Elapsed.TotalSeconds, 3)
   Write-Log "[ SYNC ] - Total time elapsed (in seconds): $timeElapsed" -TextColor Cyan
   #Write-Host "The results for qWresults:" $qwResults
-
-  $RunspacePool.Close()
-  $RunspacePool.Dispose()
 }
