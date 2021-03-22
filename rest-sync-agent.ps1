@@ -1,6 +1,6 @@
 ﻿###############################################################################
 #
-# REST-Sync-Agent.ps1 (v0.1-test)
+# REST-Sync-Agent.ps1 (v0.12-test)
 #
 # Synchronize Active Directory users to SafeNet Trusted Access via REST API
 #
@@ -8,10 +8,18 @@
 [CmdletBinding()]
 Param([String] $ConfigFile = "config\agent.config")
 
-Import-Module $PSScriptRoot\modules\helpers -Force
+# Import Write-Log, Write-ColorOutput
+Import-Module $PSScriptRoot\modules\logging -Force
 
-#TODO: Add check for $ConfigFile
 Get-Content $ConfigFile | % -begin {$Config=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $Config.Add($k[0], $k[1]) } }
+
+# Resolve default cache path
+$Config.LocalCacheFile = ($Config.LocalCacheFile -replace "<default>", "$PSScriptRoot\db")
+
+# Import scriptblocks used during multi-threading
+$PATHSCRIPT_ADDUSERS = "$PSScriptRoot\modules\scriptblock\add-users.ps1"
+$PATHSCRIPT_DELUSERS = "$PSScriptRoot\modules\scriptblock\del-users.ps1"
+$PATHSCRIPT_UPDATEUSERS = "$PSScriptRoot\modules\scriptblock\update-users.ps1"
 
 ###############################################################################
   #
@@ -50,7 +58,7 @@ $FilterExpression += $AnchorMapping
 $UserCache = @{}
 
 # Import cache into $UserCache variable. Checks for 1st run.
-If(Test-Path $($config.LocalCacheFile)) {
+If(Test-Path $($Config.LocalCacheFile)) {
     Write-Log "Loading from cache $($Config.LocalCacheFile)"
     (ConvertFrom-Json (Get-Content -Raw $Config.LocalCacheFile)).PSObject.Properties | ForEach { $UserCache[$_.Name] = $_.Value }
 
@@ -165,7 +173,7 @@ ForEach ($key in $UsersToDelete)  {
   # Send delete as webrequest, invoke-restmethod drops rc
   $timeTaken = Measure-Command { 
       $response = try {
-        (Invoke-WebRequest -Uri "$($Config.API_endpoint)\$($userData.userName)" -Method $method -ContentType 'application/json' -Headers $hdrs)
+          Invoke-WebRequest -Uri "$($Config.API_endpoint)\$($userData.userName)" -Method $method -ContentType 'application/json' -Headers $hdrs
       }
       catch [System.Net.WebException] { 
         Write-Log "An exception was caught: $($_.Exception.Message)"
@@ -205,7 +213,7 @@ ForEach ($key in $UsersToDelete)  {
 
 Function Sync-UsersToAdd {
 
-  $ScriptBlockAddUser = [Scriptblock]::Create((Get-Content -Path $PSScriptRoot\modules\scriptblock\add-users.ps1 -Raw))
+  $ScriptBlockAddUser = [Scriptblock]::Create((Get-Content -Path $PATHSCRIPT_ADDUSERS -Raw))
   
   # Keep track of threads
   [System.Collections.ArrayList]$Jobs = @()
@@ -219,17 +227,16 @@ Function Sync-UsersToAdd {
                 accept = "application/json"
         }
         method = "POST"
-        path = $PSScriptRoot
   }
 
   $UsersToAdd | % {
 
         $PowerShell = [powershell]::Create().AddScript($ScriptBlockAddUser)
 
-    
         $ParamList = @{
             user = $UserCache[$_]
-            api = $api
+            api  = $api
+            path = $PSScriptRoot
         }
 
         [void]$PowerShell.AddParameters($ParamList)
@@ -242,22 +249,21 @@ Function Sync-UsersToAdd {
         }
   }
   
-  #$stopWatch = [system.diagnostics.stopwatch]::StartNew()
-  #$res = Invoke-WebRequest $SASAPIURI -Method Post -ContentType "text/xml" -Body $queryBody
-  #$runElapse = $stopWatch.elapsed.TotalMilliseconds
-
-  Measure-Command {
-    While($Jobs) {
-      ForEach ($Runspace in $Jobs.ToArray()) {
-        If ($Runspace.Pipe.IsCompleted) {
+  $stopWatch = [system.diagnostics.stopwatch]::StartNew()
+  
+  While($Jobs) {
+    ForEach ($Runspace in $Jobs.ToArray()) {
+      If ($Runspace.Pipe.IsCompleted) {
             #[void]$qwResults.Add($Runspace.PowerShell.EndInvoke($Runspace.Pipe))
-            Write-Host $Runspace.PowerShell.EndInvoke($Runspace.Pipe)  # get results
-            $Runspace.PowerShell.Dispose()
-            $Jobs.Remove($Runspace)
-        }
+          Write-Host $Runspace.PowerShell.EndInvoke($Runspace.Pipe)  # get results
+          $Runspace.PowerShell.Dispose()
+          $Jobs.Remove($Runspace)
       }
     }
   }
+  
+  $timeElapsed = $stopWatch.Elapsed.TotalSeconds
+  Write-Log "Total time elapsed (in seconds): $timeElapsed" -TextColor Cyan
   #Write-Host "The results for qWresults:" $qwResults
 }
 

@@ -8,10 +8,9 @@ Function Add-User {
   {
     ("$_" -replace '"', '') # -> $_.ErrorDetails.Message without quotes
   }
-
 }
 
-Function Write-Basic {
+Function Write-Timestamp {
   Param ($msg)
   "$((Get-Date -format "o").Remove(22,5)) - $msg"
 }
