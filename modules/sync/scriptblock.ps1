@@ -15,11 +15,16 @@ Function Invoke-CustomWeb {
   {
     #("$_" -replace '"', '') # -> $_.ErrorDetails.Message without quotes
     
-    @{Message = $_.ErrorDetails.Message -replace '"', ''}
+    @{'Message' = $_.ErrorDetails.Message -replace '"', ''}
     $_.Exception.Response
     
   }
+  Catch {
+    @{'Message' = $_.Exception.Message }
+    @{'StatusCode' = 'Param ?!'}
+  }
   #>
+
  # $response = @{ "Message" = "HELLO" }
   $response
 }
@@ -53,14 +58,14 @@ if($api.method -eq "DELETE")
 
 
 $body = (ConvertTo-Json $user)
-$message = Write-Timestamp "[ REST ] - Sending $($api.method) to $uri`n$body`n"
+$message = Write-Timestamp "[ REST ] - Sending $($api.method) to $uri`r`n$body`r`n"
 
 $timeTaken = Measure-Command {
   $response = Invoke-CustomWeb -Uri $uri -Header $api.hdr -Method $api.method -Body $body
 }
 
 $jsonResponse = ConvertTo-Json $response.Message | % { [System.Text.RegularExpressions.Regex]::Unescape($_) }
-$message += Write-Timestamp "[ REST ] - Result - '$($response.StatusCode)' : '$jsonResponse'`n" # unescape for exception
-$message += Write-Timestamp "Actual time taken (in milliseconds): $($timeTaken.TotalMilliseconds)`n" 
+$message += Write-Timestamp "[ REST ] - Result - $($response.StatusCode) : $jsonResponse`r`n" # unescape for exception
+$message += Write-Timestamp "Actual time taken (in milliseconds): $($timeTaken.TotalMilliseconds)`r`n" 
 $message += "" + "-"*120
 $message
