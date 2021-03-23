@@ -44,8 +44,8 @@ try {
 # Get Host Details
 Get-HostDetails
 # Output Config
-Write-Log "[ ARG ] Config - MAX CPU Thread Count Set To : $($Config.MaxThreadCount)" -TextColor Cyan
-Write-Log "[ ARG ] Config - User Groups Set To : $($Config.Groups)" -TextColor Cyan
+Write-Log "[ ARG ] Config - MAX CPU thread count set to : $($Config.MaxThreadCount)" -TextColor Cyan
+Write-Log "[ ARG ] Config - User groups set to : $($Config.Groups)" -TextColor Cyan
 #$Config.MaxThreadCount
 Write-Delimiter
 
@@ -247,7 +247,8 @@ if($UsersToDelete) {
 #
 
 if($UsersToAdd) {
-  Sync-UsersToAdd -UsersToAdd $UsersToAdd -UserCache $UserCache -Config $Config
+#  Sync-UsersToAdd -UsersToAdd $UsersToAdd -UserCache $UserCache -Config $Config
+  Sync-Users -Method "POST" -Users $UsersToAdd -UserCache $UserCache -Config $Config
 }
 
 ###############################################################################

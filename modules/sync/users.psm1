@@ -50,7 +50,7 @@ Function Sync-Users($Method, $Users, $UserCache, $Config) {
     ForEach ($Runspace in $Jobs.ToArray()) {
       If ($Runspace.Pipe.IsCompleted) {
             #[void]$qwResults.Add($Runspace.PowerShell.EndInvoke($Runspace.Pipe))
-          Write-Host $Runspace.PowerShell.EndInvoke($Runspace.Pipe)  # get results
+          Write-Host $Runspace.PowerShell.EndInvoke($Runspace.Pipe) -NoNewLine # get results
           $Runspace.PowerShell.Dispose()
           $Jobs.Remove($Runspace)
       }

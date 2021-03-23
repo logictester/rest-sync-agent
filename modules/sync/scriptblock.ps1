@@ -17,6 +17,7 @@ Function Invoke-CustomWeb {
     
     @{'Message' = $_.ErrorDetails.Message -replace '"', ''}
     $_.Exception.Response
+    $_
     
   }
   Catch {
@@ -42,7 +43,7 @@ Function Invoke-CustomWeb {
 
 Function Write-Timestamp {
   Param ($msg)
-  "$((Get-Date -format "o").Remove(22,5)) - $msg"
+  Write-Output "$($(Get-Date -format "o").Remove(22,5)) - $msg`r`n"
 }
 
 $uri = $api.uri
@@ -56,16 +57,33 @@ if($api.method -eq "DELETE")
     $body = ""
 }
 
+$message = @() 
 
 $body = (ConvertTo-Json $user)
-$message = Write-Timestamp "[ REST ] - Sending $($api.method) to $uri`r`n$body`r`n"
+
+#$message = "body type = $($user.getType())`r`n"
+$message = Write-Timestamp "[ REST ] - Sending $($api.method) to $uri`r`n$body"
 
 $timeTaken = Measure-Command {
   $response = Invoke-CustomWeb -Uri $uri -Header $api.hdr -Method $api.method -Body $body
 }
 
-$jsonResponse = ConvertTo-Json $response.Message | % { [System.Text.RegularExpressions.Regex]::Unescape($_) }
-$message += Write-Timestamp "[ REST ] - Result - $($response.StatusCode) : $jsonResponse`r`n" # unescape for exception
-$message += Write-Timestamp "Actual time taken (in milliseconds): $($timeTaken.TotalMilliseconds)`r`n" 
-$message += "" + "-"*120
+# Get more details:
+#$message += '"START"' + ($response | Out-String) + '"END"'
+
+
+# General rule
+$jsonResponse = (ConvertTo-Json $response.Message) | % { [System.Text.RegularExpressions.Regex]::Unescape($_) }
+
+# Edge case #1 - For HTTP POST 201 response, i.e. when user create successful
+# Refer to $_.Content since empty $response.Message => $response.Message generates only in catch all.
+if($response.StatusCode -eq 201){
+    #$jsonResponse = (ConvertTo-Json @(($response.Content).SubString(0,$response.Content.Length-1))) | % { [System.Text.RegularExpressions.Regex]::Unescape($_) }
+    $jsonResponse = $response.Content | ConvertFrom-Json | ConvertTo-Json
+   # $message += , "Adding info about jsonresp = $($response.Content.getType()).`r`n"
+}
+
+$message += Write-Timestamp "[ REST ] - Result - $($response.StatusCode) : $jsonResponse" # unescape for exception
+$message += Write-Timestamp "Actual time taken (in milliseconds): $($timeTaken.TotalMilliseconds)"
+$message += ("-"*120 + "`r`n")
 $message
