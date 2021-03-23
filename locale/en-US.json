@@ -1,0 +1,21 @@
+{
+	"General": [{
+		"User":"User"
+	}],
+	"Errors": [{
+
+	}],
+	"Warnings": [{
+		"ExistsTarget":"exists in more than one target group?"
+	}],
+	"Msg": [{
+		"FirstRun":"First run?... Clean cache?..."
+	}],
+	"Log": [{
+		"Info"  : "[ INFO ] - ",
+		"Rest"  : "[ REST ] - ",
+		"Local" : "[ LOCL ] - "
+	}]
+
+
+}

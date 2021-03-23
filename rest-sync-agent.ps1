@@ -1,4 +1,4 @@
-﻿###############################################################################
+###############################################################################
 #
 # REST-Sync-Agent.ps1 (v0.12-test)
 #
@@ -23,13 +23,31 @@ Import-Module $PSScriptRoot\modules\sync\users -Force
 
 Get-Content $ConfigFile | % -begin {$Config=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $Config.Add($k[0], $k[1]) } }
 
+#TODO: Move path to variable / add <default> 
+$LANG = Get-Content $PSScriptRoot"\locale\en-US.json" | ConvertFrom-Json
+
 # Resolve default cache path
 $Config.LocalCacheFile = ($Config.LocalCacheFile -replace "<default>", "$PSScriptRoot\db")
+
+$Config.LogPath = ($Config.LogPath -replace "<default>", "$PSScriptRoot\log\")
 
 # Import scriptblocks used during multi-threading
 #$PATHSCRIPT_ADDUSERS = "$PSScriptRoot\modules\scriptblock\add-users.ps1"
 #$PATHSCRIPT_DELUSERS = "$PSScriptRoot\modules\scriptblock\del-users.ps1"
 #$PATHSCRIPT_UPDATEUSERS = "$PSScriptRoot\modules\scriptblock\update-users.ps1"
+
+# Start logging
+Start-Transcript -Path (Get-LogLocation -Path $Config.LogPath)
+# Catch and stop any exception
+try {
+
+# Get Host Details
+Get-HostDetails
+# Output Config
+Write-Log "[ ARG ] Config - MAX CPU Thread Count Set To : $($Config.MaxThreadCount)" -TextColor Cyan
+Write-Log "[ ARG ] Config - User Groups Set To : $($Config.Groups)" -TextColor Cyan
+#$Config.MaxThreadCount
+Write-Delimiter
 
 ###############################################################################
   #
@@ -61,6 +79,7 @@ $AttributeMapping.Keys | % {
 
 $FilterExpression += $AnchorMapping
 
+$FilterADUser = [String[]](($AttributeMapping.Values + $AnchorMapping) | % ToString)
 ###############################################################################
 # Phase 0 - Load up cache
 ###############################################################################
@@ -69,19 +88,13 @@ $UserCache = [ordered]@{}
 
 # Import cache into $UserCache variable. Checks for 1st run.
 If(Test-Path $($Config.LocalCacheFile)) {
+
     Write-Log "Loading from cache $($Config.LocalCacheFile)"
     (ConvertFrom-Json (Get-Content -Raw $Config.LocalCacheFile)).PSObject.Properties | ForEach { $UserCache[$_.Name] = $_.Value }
 
-
-    #TODO: Relocate to a function / used in db save too.
-   # $UserCache.GetEnumerator() | Sort-Object -Property @{e={$_.Value.userName}} `
-   # | Select Key, Value `
-   # | % -begin { $UserCache = [ordered]@{}} -process { $UserCache[$_.Key] = $_.Value }
-
-
 } Else {
 
-    Write-Log "[ INFO ] - First run?... Clean cache?..."
+    Write-Log ($LANG.Log.Info + $LANG.Msg.FirstRun)
 
 }
 
@@ -106,13 +119,11 @@ $RunspacePool.Open()
 # TODO: Add better checking / fail-safes in case bad AD connection
 Try {
 
-  $Properties = [String[]](($AttributeMapping.Values + $AnchorMapping) | % ToString)
-
   if($Config.Groups){
     $(ForEach ($Group in $Config.Groups.Split(",")) {
 
         Get-ADGroupMember -Identity $Group -Recursive `
-          | Get-ADUser -Properties $Properties `
+          | Get-ADUser -Properties $FilterADUser `
           | Select-Object $FilterExpression `
 
     }) | % {
@@ -125,7 +136,7 @@ Try {
           # IF user already being added
           If($UsersToAdd.Contains($key))
           {
-            Write-Warning "User '$($_.userName)' exists in more than one target group?"
+            Write-Warning ($LANG.General.User + " '" + $_.userName + "' " + $LANG.Warnings.ExistsTarget)
           }
           Else
           {
@@ -256,3 +267,10 @@ ForEach ($key in $UsersToUpdate) {
 
 $UserCache | ConvertTo-Json | Out-File $Config.LocalCacheFile
 Write-Log "Storing cache to $($Config.LocalCacheFile)."  
+
+#Stop logging
+}
+finally 
+{ 
+  Stop-Transcript 
+} 
