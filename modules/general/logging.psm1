@@ -1,5 +1,5 @@
-#https://stackoverflow.com/questions/4647756/is-there-a-way-to-specify-a-font-color-when-using-write-output
-function Write-ColorOutput
+# https://stackoverflow.com/questions/4647756/is-there-a-way-to-specify-a-font-color-when-using-write-output
+Function Write-ColorOutput
 {
     [CmdletBinding()]
     Param(
@@ -79,8 +79,9 @@ Param($Path,
   $LogFile
 }
 
+# TODO: Cleanup
 Function Get-HostDetails {
-
+Param([Parameter(Mandatory=$False)]$Config)
   $Result = @()
   $CombinedResults = New-Object -TypeName PSObject
 
@@ -110,14 +111,20 @@ Function Get-HostDetails {
   Write-Delimiter
   ($CombinedResults | Out-String).Trim()
   Write-Delimiter
-  #(ConvertTo-Json $CombinedResults) -replace '"', '' -replace ',',''
 
+  if($Config) {
+    Write-Log "[ ARG ] Config - MAX CPU thread count set to : $($Config.Value.MaxThreadCount)" -TextColor Cyan
+    Write-Log "[ ARG ] Config - User groups set to : $($Config.Value.Groups)" -TextColor Cyan
+    Write-Delimiter
+  }
 }
 
+# Print delimiter line
 Function Write-Delimiter {
   Write-Output ("" + "-"*130)
 }
-#https://theposhwolf.com/howtos/Format-Bytes/
+
+# https://theposhwolf.com/howtos/Format-Bytes/
 Function Format-Memory {
     Param
     (
@@ -143,31 +150,6 @@ Function Format-Memory {
                 }
             }
         }
-        <# Original way
-        if ($number -lt 1KB) {
-            return "$number B"
-        } elseif ($number -lt 1MB) {
-            $number = $number / 1KB
-            $number = "{0:N2}" -f $number
-            return "$number KB"
-        } elseif ($number -lt 1GB) {
-            $number = $number / 1MB
-            $number = "{0:N2}" -f $number
-            return "$number MB"
-        } elseif ($number -lt 1TB) {
-            $number = $number / 1GB
-            $number = "{0:N2}" -f $number
-            return "$number GB"
-        } elseif ($number -lt 1PB) {
-            $number = $number / 1TB
-            $number = "{0:N2}" -f $number
-            return "$number TB"
-        } else {
-            $number = $number / 1PB
-            $number = "{0:N2}" -f $number
-            return "$number PB"
-        }
-        #>
     }
     End{}
 }

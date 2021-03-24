@@ -34,11 +34,8 @@ Start-Transcript -Path (Get-LogLocation -Path $Config.LogPath)
 try {
 
 # Get Host Details
-Get-HostDetails
-# Output Config
-Write-Log "[ ARG ] Config - MAX CPU thread count set to : $($Config.MaxThreadCount)" -TextColor Cyan
-Write-Log "[ ARG ] Config - User groups set to : $($Config.Groups)" -TextColor Cyan
-Write-Delimiter
+Get-HostDetails -Config ([ref]$Config)
+
 
 ###############################################################################
   #
@@ -92,7 +89,6 @@ If(Test-Path $($Config.LocalCacheFile)) {
 $UsersToAdd = [System.Collections.ArrayList]::new() # any users found in ad but not in cache
 $UsersToUpdate = [System.Collections.ArrayList]::new() # any users found in ad which have a different attribute than from cache
 $UsersToDelete = [System.Collections.ArrayList]$UserCache.Keys # reverse logic, start with all users, then remove the ones we find in ad as we process
-
 
 ###############################################################################
 # PHASE 1 - Query AD source
@@ -156,14 +152,12 @@ Else
     $UsersToDelete
 }
 
-
 If($UsersToAdd.Count -eq 0) { Write-Log "[ INFO ] - There are *no* users to add." }
 Else
 {
     Write-Log "[ INFO ] - Adding the following *$($UsersToAdd.Count)* users:"
     $UsersToAdd
 }
-
 
 ###############################################################################
 # PHASE 2 - Make changes to Cloud
@@ -172,37 +166,17 @@ Else
 ###############################################################################
 
 if($UsersToDelete) {
-  Sync-Users -Method "DELETE" -Users $UsersToDelete -UserCache $UserCache -Config $Config
+  Sync-Users -Method "DELETE" -Users $UsersToDelete -UserCache ([ref]$UserCache) -Config $Config
+  Write-Log "[ TEMP ] - TODO: No server checks made on cache clear (DELETE user)."
+  $UsersToDelete | % { $UserCache.Remove($_) } # temporary / add checks
 }
-<#
-  # Convert status code enum to int by doing this:
-  $statusCodeInt = [int]$response.StatusCode
-  #  $response.StatusCode.Value__
-  Write-Debug "[ REST ] - DELETE return code => $statuscodeInt"
-
-  # STA did not find user (rc = 404)
-  # Abnormal state in script cache: user found in cache but not in sta, resolve by delete from cache
-  if($statusCodeInt -eq 404)
-  {
-      Write-Log "[ LOCL ] - Cleaning up '$($userData.userName)' from cache"
-      $UserCache.Remove($key)
-  }
-
-  # STA delete successful (rc = 204)
-  if($statusCodeInt -eq 204)
-  {
-      Write-Log "[ REST ] - Successful delete of user '$($userData.userName)' from STA"
-      Write-Log "[ LOCL ] - Deleting '$($userData.username)' from cache"
-      $UserCache.Remove($key)
-  }
-
-}
-#>
 
 ###############################################################################
 # PART 2.2 - Add users
+###############################################################################
+
 if($UsersToAdd) {
-  Sync-Users -Method "POST" -Users $UsersToAdd -UserCache $UserCache -Config $Config
+  Sync-Users -Method "POST" -Users $UsersToAdd -UserCache ([ref]$UserCache) -Config $Config
 }
 
 ###############################################################################
@@ -219,9 +193,8 @@ ForEach ($key in $UsersToUpdate) {
 $UserCache | ConvertTo-Json | Out-File $Config.LocalCacheFile
 Write-Log "Storing cache to $($Config.LocalCacheFile)."  
 
-#Stop logging
 }
-finally 
+Finally 
 { 
-  Stop-Transcript 
+  Stop-Transcript  # Stop logging
 } 
