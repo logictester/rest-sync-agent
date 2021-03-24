@@ -8,7 +8,7 @@
 [CmdletBinding()]
 Param([String] $ConfigFile = "config\agent.config")
 
-
+$PSDefaultParameterValues = @{ '*:Encoding' = 'utf8' }
 ##############################################################################
 
 
