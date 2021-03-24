@@ -1,5 +1,5 @@
 # rest-sync-agent
- Synchronize via REST API Active Directory Users to SafeNet Trusted Access 
+ Synchronize Active Directory Users to SafeNet Trusted Access via REST API 
 
 ## author
  Cina Shaykhian <cina.shaykhian@thalesgroup.com>
