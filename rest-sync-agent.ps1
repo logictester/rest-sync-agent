@@ -8,15 +8,10 @@
 [CmdletBinding()]
 Param([String] $ConfigFile = "config\agent.config")
 
-$PSDefaultParameterValues = @{ '*:Encoding' = 'utf8' }
 ##############################################################################
-
 
 # Import Write-Log, Write-ColorOutput
 Import-Module $PSScriptRoot\modules\general\logging -Force
-
-# Import Sync-UsersToAdd
-Import-Module $PSScriptRoot\modules\sync\usersToAdd -Force
 
 # Import Sync-Users
 Import-Module $PSScriptRoot\modules\sync\users -Force
@@ -26,15 +21,12 @@ Get-Content $ConfigFile | % -begin {$Config=@{}} -process { $k = [regex]::split(
 #TODO: Move path to variable / add <default> 
 $LANG = Get-Content $PSScriptRoot"\locale\en-US.json" | ConvertFrom-Json
 
-# Resolve default cache path
+# Resolve default paths
 $Config.LocalCacheFile = ($Config.LocalCacheFile -replace "<default>", "$PSScriptRoot\db")
-
 $Config.LogPath = ($Config.LogPath -replace "<default>", "$PSScriptRoot\log\")
 
-# Import scriptblocks used during multi-threading
-#$PATHSCRIPT_ADDUSERS = "$PSScriptRoot\modules\scriptblock\add-users.ps1"
-#$PATHSCRIPT_DELUSERS = "$PSScriptRoot\modules\scriptblock\del-users.ps1"
-#$PATHSCRIPT_UPDATEUSERS = "$PSScriptRoot\modules\scriptblock\update-users.ps1"
+# Set encoding to UTF-8 to avoid white-spaces in transcript logs
+$PSDefaultParameterValues = @{ '*:Encoding' = 'utf8' }
 
 # Start logging
 Start-Transcript -Path (Get-LogLocation -Path $Config.LogPath)
@@ -46,7 +38,6 @@ Get-HostDetails
 # Output Config
 Write-Log "[ ARG ] Config - MAX CPU thread count set to : $($Config.MaxThreadCount)" -TextColor Cyan
 Write-Log "[ ARG ] Config - User groups set to : $($Config.Groups)" -TextColor Cyan
-#$Config.MaxThreadCount
 Write-Delimiter
 
 ###############################################################################
@@ -102,15 +93,6 @@ $UsersToAdd = [System.Collections.ArrayList]::new() # any users found in ad but 
 $UsersToUpdate = [System.Collections.ArrayList]::new() # any users found in ad which have a different attribute than from cache
 $UsersToDelete = [System.Collections.ArrayList]$UserCache.Keys # reverse logic, start with all users, then remove the ones we find in ad as we process
 
-
-###############################################################################
-  #
-  #       M u l t i - t h r e a d i n g    
-  #
-###############################################################################
-
-$RunspacePool = [Runspacefactory]::CreateRunspacePool(1, $Config.MaxThreadCount)
-$RunspacePool.Open()
 
 ###############################################################################
 # PHASE 1 - Query AD source
@@ -192,31 +174,7 @@ Else
 if($UsersToDelete) {
   Sync-Users -Method "DELETE" -Users $UsersToDelete -UserCache $UserCache -Config $Config
 }
-
-<#ForEach ($key in $UsersToDelete)  {
-  #$jsonUserData = ConvertTo-Json $UserCache.$key
-  $userData = $UserCache[$key]
-
-  Write-Log "[ REST ] - Deleting $key `($($userData.userName)`)"
-
-  $hdrs = @{}
-  $hdrs.Add("apikey",$Config.API_key)
-  $hdrs.Add("accept","application/json")
-  $method = "DELETE"
-
-  # Send delete as webrequest, invoke-restmethod drops rc
-  $timeTaken = Measure-Command { 
-      $response = try {
-          Invoke-WebRequest -Uri "$($Config.API_endpoint)\$($userData.userName)" -Method $method -ContentType 'application/json' -Headers $hdrs
-      }
-      catch [System.Net.WebException] { 
-        Write-Log "An exception was caught: $($_.Exception.Message)"
-        $_.Exception.Response 
-      }
-  } 
-
-  Write-Log "Time taken (in milliseconds): $($timeTaken.TotalMilliseconds)" -TextColor Cyan
-
+<#
   # Convert status code enum to int by doing this:
   $statusCodeInt = [int]$response.StatusCode
   #  $response.StatusCode.Value__
@@ -243,11 +201,7 @@ if($UsersToDelete) {
 
 ###############################################################################
 # PART 2.2 - Add users
-# TODO: Add check when added. 
-#
-
 if($UsersToAdd) {
-#  Sync-UsersToAdd -UsersToAdd $UsersToAdd -UserCache $UserCache -Config $Config
   Sync-Users -Method "POST" -Users $UsersToAdd -UserCache $UserCache -Config $Config
 }
 
@@ -261,10 +215,6 @@ ForEach ($key in $UsersToUpdate) {
 ###############################################################################
 # PHASE 3 - Store latest cache
 ###############################################################################
-
-#$UserCache.GetEnumerator() | Sort-Object -Property @{e={$_.Value.userName}} `
-#  | Select Key, Value `
- # | % -begin { $UserCache = [ordered]@{}} -process { $UserCache[$_.Key] = $_.Value }
 
 $UserCache | ConvertTo-Json | Out-File $Config.LocalCacheFile
 Write-Log "Storing cache to $($Config.LocalCacheFile)."  
