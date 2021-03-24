@@ -5,7 +5,7 @@
  Cina Shaykhian <cina.shaykhian@thalesgroup.com>
 
 ## version
- Build 0.13 (testing only) - 2021.03.21
+ Build 0.12 (testing only) - 2021.03.21
 
 ## Table of contents
 * [Overview](#overview)
