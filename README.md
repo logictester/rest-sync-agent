@@ -13,8 +13,8 @@
 * [Setup](#setup)
 
 ## Overview
-This project is simple Lorem ipsum dolor generator.
-	
+This project is a simple user synchronization script using REST API.
+
 ## Requirements
 Project is created with:
 * PowerShell: 3.0 and above
