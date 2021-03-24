@@ -21,7 +21,7 @@ Project is created with:
 * Windows Server (if necessary `Import-Module ActiveDirectory`)
 	
 ## Setup
-First configure `agent.config`:
+First configure `config\agent.config`:
 
 ```
 # REST API key (find in STA console)
